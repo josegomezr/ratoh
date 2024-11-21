@@ -1,0 +1,41 @@
+package Ratoh::Config;
+
+use Mojo::Base -strict;
+
+sub rabbitmq_settings {
+	return {
+		host => 'rabbit.yourhost.server',
+		conn_params => {
+			timeout=> 10,
+			# port => 5671, defaults to 5671 with ssl, 5672 otherwise
+			heartbeat => 1,
+			ssl => 1,
+			ssl_verify_host => 1,
+			ssl_cacert => '/location/of/your/ca/here.pem',
+			user => 'dauser',
+			password => 'dapassword',
+			channel => 1,
+			# queue => '', defaults to empty
+			exchange => 'daexchange',
+			routing_key => 'your.routing.*.key.#',
+		}
+	}
+}
+
+sub targets {
+	return {
+		target_1 => {
+			url => 'http://127.0.0.1:9292/',
+			method => 'post',
+			# == OPTIONAL ==
+			# custom body parser. JSON is the default when not specified
+			# body_parse => sub { $body, $message }
+			#
+			# Modify the request before is sent
+			# pre_request => sub { $req }
+			# on_error => sub { $response, $amqp_message }
+		}
+	}
+}
+
+1;
