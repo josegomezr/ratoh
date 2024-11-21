@@ -12,7 +12,7 @@ use Data::Dumper;
 
 require "./Config.pm"; ## no critic
 
-my $log = Mojo::Log->new;
+my $log = Mojo::Log->new(level => $ENV{RATO_LOG} // 'debug');
 my $cfg = Ratoh::Config::rabbitmq_settings();
 my $targets = Ratoh::Config::targets();
 
@@ -21,18 +21,16 @@ sub send_http_request {
 	my $url = $target->{url};
 	my $pointer = Mojo::JSON::Pointer->new($body);
 
-	while ($url =~ s!%\{([^\}]+)\}%!($pointer->get($1)//"-broken:$1-")!ge) {}
+	do {} while ($url =~ s!%\{([^\}]+)\}%!($pointer->get($1)//"-broken:$1-broken-")!ge);
 
 	$url = Mojo::URL->new($url);
 	my $method = $target->{method} // 'get';
-
 	my $ua = Mojo::UserAgent->new();
-
 	my $tx = $ua->build_tx($method => $url => {}, json => $body);
 
-	if ($target->{pre_request}){
-		$target->{pre_request}->($tx->req);
-	}
+	# Apply pre-request changes
+	$target->{pre_request}->($tx->req) if is_subroutine($target->{pre_request});
+
 	$tx = $ua->start($tx);
 
 	return {
@@ -44,20 +42,27 @@ sub send_http_request {
 }
 
 sub is_subroutine {
-  my $rt = shift;
+  my ($rt) = @_;
   return defined $rt and reftype($rt) eq 'CODE'
+}
+
+sub is_http_status_error {
+	my ($status) = @_;
+	return $status && ($status < 200 || $status >299);
 }
 
 sub notify_targets {
 	my ($targets, $message) = @_;
 	foreach	my $target_name (keys $targets->%*) {
-		$log->info(sprintf("[%s] Notifying %s", $message->{consumer_tag}, $target_name));
+		my $log = $log->context($target_name, $message->{routing_key}, $message->{consumer_tag});
+
+		$log->info("START - Notifying target");
 
 		my $target = $targets->{$target_name};
 		my $body = $message->{body};
 		my $body_parser = $target->{body_parser} // 'PARSE_JSON';
 
-		if($target->{body_parser} eq 'PARSE_JSON'){
+		if($body_parser eq 'PARSE_JSON'){
 			eval { $body = Mojo::JSON::decode_json($message->{body}) };
 		}elsif (is_subroutine $target->{body_parser}){
 			# or do something arbitrary...
@@ -65,18 +70,26 @@ sub notify_targets {
 		}
 
 		if($@) {
-			$log->info(sprintf("[%s] Falling back to empty json body, JSON Parsing broke with: %s", $message->{consumer_tag}, $@));
+			$log->trace("Falling back to empty json body, JSON Parsing broke with: $@");
 			$body = {};
 		}
 
 		$message->{body} = $body;
 
+		if (is_subroutine($target->{message_filter}) && !$target->{message_filter}->($message)) {
+			$log->trace("Message was filtered out, skipping target");
+			goto END_NOTIFICATION_LOOP;
+		}
+
 		my $response = send_http_request($target, $message);
-		if (($response->{status_code} < 200 || $response->{status_code} > 299) && is_subroutine($target->{on_error})) {
-			$log->info(sprintf("[%s] Calling error handler on %s", $message->{consumer_tag}, $target_name));
+		my $resp_code = $response->{status_code};
+		if (is_http_status_error($resp_code) && is_subroutine($target->{on_error})) {
+			$log->debug("Calling error handler");
 			$target->{on_error}->($response, $message);
 		}
-		# print Dumper($response);
+
+		END_NOTIFICATION_LOOP:
+			$log->info("DONE - Notifying target");
 	}
 }
 
@@ -107,7 +120,7 @@ $mq->consume($cfg->{conn_params}->{channel}, $queuename);
 $log->info('Start consuming');
 while ( my $message = $mq->recv(0) )
 {
-	$log->debug('Incoming message: ' . Mojo::Util::dumper($message));
+	$log->trace('Incoming message: ' . Mojo::Util::dumper($message));
 	notify_targets($targets, $message);
 }
 

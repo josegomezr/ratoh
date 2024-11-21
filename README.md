@@ -20,6 +20,11 @@ Testing
 
 Alongisde is provided `devel_server.ru`, a ruby rackup minimal HTTP echo server.
 
+```bash
+# Start the server at 127.0.0.1:9292
+rackup devel_server.ru
+```
+
 
 Naming
 ------
