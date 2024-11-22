@@ -12,7 +12,7 @@ Create a `Config.pm`, see the sample file for details. Then run:
 
 ```bash
 # or just copy the sample with: cp Config.pm{.sample,}
-perl main.pl
+perl main.pl Config.pm
 ```
 
 And wait for the requests in your HTTP server ✨

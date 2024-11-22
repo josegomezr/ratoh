@@ -1,9 +1,5 @@
-package Ratoh::Config;
-
-use Mojo::Base -strict;
-
-sub rabbitmq_settings {
-	return {
+{
+	rabbit_mq => {
 		host => 'rabbit.yourhost.server',
 		conn_params => {
 			timeout=> 10,
@@ -19,12 +15,9 @@ sub rabbitmq_settings {
 			exchange => 'daexchange',
 			routing_key => 'your.routing.*.key.#',
 		}
-	}
-}
-
-sub targets {
-	return {
-		target_1 => {
+	},
+	endpoints => {
+		service_name_1 => {
 			url => 'http://127.0.0.1:9292/',
 			method => 'post',
 			# == OPTIONAL ==
@@ -42,5 +35,3 @@ sub targets {
 		}
 	}
 }
-
-1;

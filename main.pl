@@ -3,18 +3,21 @@
 use Mojo::Base -strict;
 use Mojo::UserAgent;
 use Mojo::URL;
+use Mojo::File;
 use Mojo::Log;
 use Mojo::JSON;
 use Mojo::Util;
 use Net::AMQP::RabbitMQ;
 use Data::Dumper;
 
-
-require "./Config.pm";    ## no critic
-
 my $log = Mojo::Log->new(level => $ENV{RATO_LOG} // 'debug');
-my $cfg = Ratoh::Config::rabbitmq_settings();
-my $targets = Ratoh::Config::targets();
+
+# TODO: properly do argparse here.
+sub arg_parse {
+    return {
+        config_file => shift (@ARGV) // './Config.pm'
+    }
+}
 
 sub send_http_request {
     my ($target, $body) = @_;
@@ -27,7 +30,7 @@ sub send_http_request {
     my $method = $target->{method} // 'get';
     my $ua = Mojo::UserAgent->new();
     my $tx = $ua->build_tx($method => $url => {}, json => $body);
-
+    $tx->req->headers->user_agent('RaToH/1.0.0');
     # Apply pre-request changes
     $target->{pre_request}->($tx->req) if is_subroutine($target->{pre_request});
 
@@ -43,7 +46,7 @@ sub send_http_request {
 
 sub is_subroutine {
     my ($rt) = @_;
-    return defined $rt and reftype($rt) eq 'CODE';
+    return (defined $rt) && (ref($rt) eq 'CODE');
 }
 
 sub is_http_status_error {
@@ -93,38 +96,58 @@ sub notify_targets {
     }
 }
 
+sub connect_to_rabbitmq {
+    my ($config) = @_;
+    my $mq = Net::AMQP::RabbitMQ->new();
+    $config->{conn_params}->{port} //= ($config->{conn_params}->{ssl} ? 5671 : 5672);
+    $config->{conn_params}->{queue} //= '';
+    $log->info('Connecting to RabbitMQ: ' . $config->{host});
+    $log->trace('Connection information: ' . Mojo::Util::dumper(
+            {
+                user => $config->{conn_params}->{user},
+                queue => $config->{conn_params}->{queue},
+                channel => $config->{conn_params}->{channel},
+                exchange => $config->{conn_params}->{exchange},
+                routing_key => $config->{conn_params}->{routing_key},
+            }
+        )
+    );
 
-my $mq = Net::AMQP::RabbitMQ->new();
+    $mq->connect($config->{host}, $config->{conn_params});
 
-$cfg->{conn_params}->{port} //= ($cfg->{conn_params}->{ssl} ? 5671 : 5672);
-$cfg->{conn_params}->{queue} //= '';
-$log->info('Connecting to RabbitMQ: ' . $cfg->{host});
-$log->trace('Connection information: ' . Mojo::Util::dumper(
-        {
-            user => $cfg->{conn_params}->{user},
-            queue => $cfg->{conn_params}->{queue},
-            channel => $cfg->{conn_params}->{channel},
-            exchange => $cfg->{conn_params}->{exchange},
-            routing_key => $cfg->{conn_params}->{routing_key},
-        }
-    )
-);
+    $log->trace('Opening channel');
+    $mq->channel_open($config->{conn_params}->{channel});
 
-$mq->connect($cfg->{host}, $cfg->{conn_params});
+    $log->trace('Declaring queue');
+    my $queuename = $mq->queue_declare(1, $config->{conn_params}->{queue});
 
-$log->trace('Opening channel');
-$mq->channel_open($cfg->{conn_params}->{channel});
+    $log->info('Binding to queue: ' . $queuename);
+    $mq->queue_bind($config->{conn_params}->{channel}, $queuename, $config->{conn_params}->{exchange}, $config->{conn_params}->{routing_key});
+    $mq->consume($config->{conn_params}->{channel}, $queuename);
 
-$log->trace('Declaring queue');
-my $queuename = $mq->queue_declare(1, $cfg->{conn_params}->{queue});
+    return $mq;
+}
 
-$log->info('Binding to queue: ' . $queuename);
-$mq->queue_bind($cfg->{conn_params}->{channel}, $queuename, $cfg->{conn_params}->{exchange}, $cfg->{conn_params}->{routing_key});
-$mq->consume($cfg->{conn_params}->{channel}, $queuename);
+
+my $args = arg_parse();
+
+my $cfg_file_path = $args->{config_file};
+die("Config file $cfg_file_path does not exist.") unless -e $cfg_file_path;
+
+my $cfg_code = "package Ratoh::Config::Sandbox;";
+$cfg_code .= Mojo::File->new($cfg_file_path)->slurp();
+my $config = eval($cfg_code);
+
+die qq{Can't load configuration from file "$cfg_file_path": $@} if $@;
+die qq{Configuration file "$cfg_file_path" did not return a hash reference} unless ref $config eq 'HASH';
+
+my $targets = $config->{endpoints};
+
+my $mq = connect_to_rabbitmq($config->{rabbit_mq});
 
 $log->info('Ra-to-H Starts!');
-while (my $message = $mq->recv(0))
-{
+
+while (my $message = $mq->recv(0)) {
     $log->trace('Incoming message: ' . Mojo::Util::dumper($message));
     notify_targets($targets, $message);
 }
