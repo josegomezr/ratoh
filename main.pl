@@ -10,13 +10,13 @@ use Mojo::Util;
 use Net::AMQP::RabbitMQ;
 use Data::Dumper;
 
-my $log = Mojo::Log->new(level => $ENV{RATO_LOG} // 'debug');
+my $log = Mojo::Log->new(level => $ENV{RATOH_LOG} // 'debug');
 
 # TODO: properly do argparse here.
 sub arg_parse {
     return {
-        config_file => shift (@ARGV) // './Config.pm'
-    }
+        config_file => shift(@ARGV) // './Config.pm'
+    };
 }
 
 sub send_http_request {
@@ -136,23 +136,42 @@ die("Config file $cfg_file_path does not exist.") unless -e $cfg_file_path;
 
 my $cfg_code = "package Ratoh::Config::Sandbox;";
 $cfg_code .= Mojo::File->new($cfg_file_path)->slurp();
-my $config = eval($cfg_code);
+my $config = eval($cfg_code); ## no critic
 
 die qq{Can't load configuration from file "$cfg_file_path": $@} if $@;
 die qq{Configuration file "$cfg_file_path" did not return a hash reference} unless ref $config eq 'HASH';
 
 my $targets = $config->{endpoints};
 
-my $mq = connect_to_rabbitmq($config->{rabbit_mq});
-
 $log->info('Ra-to-H Starts!');
 
-while (my $message = $mq->recv(0)) {
-    $log->trace('Incoming message: ' . Mojo::Util::dumper($message));
-    notify_targets($targets, $message);
+my $retries = 10;
+
+while (1) {
+    my $mq;
+    eval { $mq = connect_to_rabbitmq($config->{rabbit_mq}) };
+    if ($@) {
+        $log->error("Error on connection: $@");
+        $log->error("Too many errors, bailing out.") and break if $retries == 0;
+
+        $retries--;
+        $log->info('Retrying in 5 seconds...');
+        sleep 5 and next;
+    }
+    $retries = 10;
+
+    $log->info('Connected! Awaiting for messages...');
+
+    while (my $message = eval { $mq->recv(0) }) {
+        $log->trace('Incoming message: ' . Mojo::Util::dumper($message));
+        notify_targets($targets, $message);
+    }
+
+    if ($@) {
+        $log->error("Error while connected: $@");
+        # Disconect and send to connection routine above.
+        $mq->disconnect() and next;
+    }
 }
 
-$log->info('Disconnecting');
 $log->info('Ra-to-H Ends!');
-
-$mq->disconnect();
