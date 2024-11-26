@@ -20,12 +20,35 @@ And wait for the requests in your HTTP server ✨
 Testing
 -------
 
-Alongisde is provided `devel_server.ru`, a ruby rackup minimal HTTP echo server.
-That coincidentally just works with the sample config.
+Have a RabbitMQ server available, if not, here's a container to the rescue:
+```
+docker run --rm -it -p 5672:5672 rabbitmq:3
+```
+
+It'll have by default the following exchanges:
+
+```
+amq.fanout	fanout
+amq.topic	topic
+amq.direct	direct
+```
+
+Adjust your `Config.pm` to use the exchange of your choice, this project was
+born out of listening to `topic` exchanges.
+
+Alongisde the project is also provided `devel_server.pl`, a mojolicious minimal
+HTTP echo server. That coincidentally just works with the sample endpoints
+config.
 
 ```bash
-# Start the server at 127.0.0.1:9292
-rackup devel_server.ru
+# Start the server at 127.0.0.1:3000
+perl devel_server.pl daemon
+```
+
+Now with all services up, send messages with the `publisher.pl`:
+
+```
+bash publisher.pl
 ```
 
 Dependencies
