@@ -18,7 +18,7 @@
 	},
 	endpoints => {
 		service_name_1 => {
-			url => 'http://127.0.0.1:9292/',
+			url => 'http://127.0.0.1:3000/',
 			method => 'post',
 			# == OPTIONAL ==
 			# - Custom body parser: JSON is the default when not specified
