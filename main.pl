@@ -1,4 +1,5 @@
 #!/usr/bin/perl -w
+package Ratoh;
 
 use Mojo::Base -strict;
 use Mojo::UserAgent;
@@ -8,7 +9,6 @@ use Mojo::Log;
 use Mojo::JSON;
 use Mojo::Util;
 use Net::AMQP::RabbitMQ;
-use Data::Dumper;
 
 my $log = Mojo::Log->new(level => $ENV{RATOH_LOG} // 'debug');
 
@@ -137,17 +137,20 @@ die qq{Can't load configuration from file "$cfg_file_path": $@} if $@;
 die qq{Configuration file "$cfg_file_path" did not return a hash reference} unless ref $config eq 'HASH';
 
 my $endpoint = $config->{endpoint};
+$endpoint->{mode} //= 'forever';
 
 $log->info('Ra-to-H Starts!');
 
 my $retries = 10;
 
-while (1) {
+$log->trace("Endpoint configuration: " . Mojo::Util::dumper($endpoint));
+
+MAIN_LOOP: while (1) {
     my $mq;
     eval { $mq = connect_to_rabbitmq($config->{rabbit_mq}) };
     if ($@) {
         $log->error("Error on connection: $@");
-        $log->error("Too many errors, bailing out.") and break if $retries == 0;
+        $log->error("Too many errors, bailing out.") and last if $retries == 0;
 
         $retries--;
         $log->info('Retrying in 5 seconds...');
@@ -160,6 +163,10 @@ while (1) {
     while (my $message = eval { $mq->recv(0) }) {
         $log->trace('Incoming message: ' . Mojo::Util::dumper($message));
         notify_endpoint($endpoint, $message);
+        if ($config->{run_mode} eq 'stop_on_first_message') {
+            $log->info('Stopping after first message');
+            last MAIN_LOOP;
+        }
     }
 
     if ($@) {

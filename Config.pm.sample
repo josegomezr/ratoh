@@ -33,4 +33,10 @@
 		# - Message filter: return 1 to accept a message, 0 to skip it.
 		# message_filter => sub { $amqp_message }
 	}
+	# == OPTIONAL ==
+	# - Run mode: forever || stop_on_first_message
+	#   stop_on_first_message will `exit 0` when the first message is delivered
+	#   NOTE: A message is count as delivered after the HTTP request finishes.
+	#         regardless of the outcome.
+	# run_mode => 'forever'
 }

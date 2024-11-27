@@ -15,8 +15,8 @@ my $log = Mojo::Log->new(level => $ENV{RATOH_LOG} // 'debug');
 # TODO: properly do argparse here.
 sub arg_parse {
     return {
-        config_file => shift (@ARGV) // './Config.pm'
-    }
+        config_file => shift(@ARGV) // './Config.pm'
+    };
 }
 
 sub connect_to_rabbitmq {
@@ -52,7 +52,7 @@ die("Config file $cfg_file_path does not exist.") unless -e $cfg_file_path;
 
 my $cfg_code = "package Ratoh::Config::Sandbox;";
 $cfg_code .= Mojo::File->new($cfg_file_path)->slurp();
-my $config = eval($cfg_code); ## no critic
+my $config = eval($cfg_code);    ## no critic
 
 die qq{Can't load configuration from file "$cfg_file_path": $@} if $@;
 die qq{Configuration file "$cfg_file_path" did not return a hash reference} unless ref $config eq 'HASH';
@@ -61,7 +61,7 @@ die qq{Configuration file "$cfg_file_path" did not return a hash reference} unle
 $log->info('Connecting');
 my $mq = connect_to_rabbitmq($config->{rabbit_mq});
 
-$mq->publish($config->{rabbit_mq}->{conn_params}->{channel}, 'my.message', Mojo::JSON::encode_json({a => 'b'}), { exchange => $config->{rabbit_mq}->{conn_params}->{exchange} });
+$mq->publish($config->{rabbit_mq}->{conn_params}->{channel}, 'my.message', Mojo::JSON::encode_json({a => 'b'}), {exchange => $config->{rabbit_mq}->{conn_params}->{exchange}});
 print $@;
 $mq->disconnect();
 
