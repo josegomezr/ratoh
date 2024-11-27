@@ -4,13 +4,14 @@ use Mojolicious::Lite -signatures;
 use Mojo::Util qw(dumper);
 
 sub echo_req {
-  my ($c) = @_;
-  my $path = $c->req->url->path;
-  my $headers = dumper($c->req->headers->to_hash);
-  my $body = $c->req->body;
+    my ($c) = @_;
+    my $method = $c->req->method;
+    my $path = $c->req->url->path;
+    my $headers = dumper($c->req->headers->to_hash);
+    my $body = $c->req->body;
 
-  my $resp = (<<~EOF);
-  Path: $path
+    my $resp = (<<~EOF);
+  Incoming Request $method $path
   Headers
   ----
   $headers
@@ -19,7 +20,9 @@ sub echo_req {
   -----
   $body
   EOF
-  $c->render(text => $resp);
+
+    $c->log->info($resp);
+    $c->render(text => $resp);
 }
 
 # Route with placeholder

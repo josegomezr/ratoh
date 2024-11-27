@@ -20,19 +20,19 @@ sub arg_parse {
 }
 
 sub send_http_request {
-    my ($target, $body) = @_;
-    my $url = $target->{url};
+    my ($endpoint, $body) = @_;
+    my $url = $endpoint->{url};
     my $pointer = Mojo::JSON::Pointer->new($body);
 
     do { } while ($url =~ s!%\{([^\}]+)\}%!($pointer->get($1)//"-broken:$1-broken-")!ge);
 
     $url = Mojo::URL->new($url);
-    my $method = $target->{method} // 'get';
+    my $method = $endpoint->{method} // 'get';
     my $ua = Mojo::UserAgent->new();
     my $tx = $ua->build_tx($method => $url => {}, json => $body);
     $tx->req->headers->user_agent('RaToH/1.0.0');
     # Apply pre-request changes
-    $target->{pre_request}->($tx->req) if is_subroutine($target->{pre_request});
+    $endpoint->{pre_request}->($tx->req) if is_subroutine($endpoint->{pre_request});
 
     $tx = $ua->start($tx);
 
@@ -54,46 +54,41 @@ sub is_http_status_error {
     return $status && ($status < 200 || $status > 299);
 }
 
-sub notify_targets {
-    my ($targets, $message) = @_;
-    foreach my $target_name (keys $targets->%*) {
-        my $log = $log->context($target_name, $message->{routing_key}, $message->{consumer_tag});
+sub notify_endpoint {
+    my ($endpoint, $message) = @_;
+    $log->info("START - Notifying endpoint");
 
-        $log->info("START - Notifying target");
+    my $body = $message->{body};
+    my $body_parser = $endpoint->{body_parser} // 'PARSE_JSON';
 
-        my $target = $targets->{$target_name};
-        my $body = $message->{body};
-        my $body_parser = $target->{body_parser} // 'PARSE_JSON';
-
-        if ($body_parser eq 'PARSE_JSON') {
-            eval { $body = Mojo::JSON::decode_json($message->{body}) };
-        } elsif (is_subroutine $target->{body_parser}) {
-            # or do something arbitrary...
-            eval { $body = $target->{body_parser}->($body, $message) };
-        }
-
-        if ($@) {
-            $log->trace("Falling back to empty json body, JSON Parsing broke with: $@");
-            $body = {};
-        }
-
-        $message->{body} = $body;
-
-        if (is_subroutine($target->{message_filter}) && !$target->{message_filter}->($message)) {
-            $log->trace("Message was filtered out, skipping target");
-            goto END_NOTIFICATION_LOOP;
-        }
-
-        my $response = send_http_request($target, $message);
-        my $resp_code = $response->{status_code};
-        if (is_http_status_error($resp_code) && is_subroutine($target->{on_error})) {
-            $log->debug("Calling error handler");
-            $target->{on_error}->($response, $message);
-        }
-
-      END_NOTIFICATION_LOOP:
-        $log->info("DONE - Notifying target");
+    if ($body_parser eq 'PARSE_JSON') {
+        eval { $body = Mojo::JSON::decode_json($message->{body}) };
+    } elsif (is_subroutine $endpoint->{body_parser}) {
+        # or do something arbitrary...
+        eval { $body = $endpoint->{body_parser}->($body, $message) };
     }
+
+    if ($@) {
+        $log->trace("Falling back to empty json body, JSON Parsing broke with: $@");
+        $body = {};
+    }
+
+    $message->{body} = $body;
+
+    if (is_subroutine($endpoint->{message_filter}) && !$endpoint->{message_filter}->($message)) {
+        $log->trace("Message was filtered out, skipping endpoint");
+        goto END_NOTIFICATION_LOOP;
+    }
+
+    my $response = send_http_request($endpoint, $message);
+    my $resp_code = $response->{status_code};
+    if (is_http_status_error($resp_code) && is_subroutine($endpoint->{on_error})) {
+        $log->debug("Calling error handler");
+        $endpoint->{on_error}->($response, $message);
+    }
+
+  END_NOTIFICATION_LOOP:
+    $log->info("DONE - Notifying endpoint");
 }
 
 sub connect_to_rabbitmq {
@@ -136,12 +131,12 @@ die("Config file $cfg_file_path does not exist.") unless -e $cfg_file_path;
 
 my $cfg_code = "package Ratoh::Config::Sandbox;";
 $cfg_code .= Mojo::File->new($cfg_file_path)->slurp();
-my $config = eval($cfg_code); ## no critic
+my $config = eval($cfg_code);    ## no critic
 
 die qq{Can't load configuration from file "$cfg_file_path": $@} if $@;
 die qq{Configuration file "$cfg_file_path" did not return a hash reference} unless ref $config eq 'HASH';
 
-my $targets = $config->{endpoints};
+my $endpoint = $config->{endpoint};
 
 $log->info('Ra-to-H Starts!');
 
@@ -164,7 +159,7 @@ while (1) {
 
     while (my $message = eval { $mq->recv(0) }) {
         $log->trace('Incoming message: ' . Mojo::Util::dumper($message));
-        notify_targets($targets, $message);
+        notify_endpoint($endpoint, $message);
     }
 
     if ($@) {

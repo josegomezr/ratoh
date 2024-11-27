@@ -17,21 +17,20 @@
 		}
 	},
 	endpoints => {
-		service_name_1 => {
-			url => 'http://127.0.0.1:3000/',
-			method => 'post',
-			# == OPTIONAL ==
-			# - Custom body parser: JSON is the default when not specified
-			# body_parse => sub { $body, $message }
-			#
-			# - Modify the request before is sent
-			# pre_request => sub { $req }
-			#
-			# - Error handler: called when the request returns status <200 & >299
-			# on_error => sub { $response, $amqp_message }
-			#
-			# - Message filter: return 1 to accept a message, 0 to skip it.
-			# message_filter => sub { $amqp_message }
-		}
+		url => 'http://127.0.0.1:3000/',
+		method => 'post',
+		# == OPTIONAL ==
+		# - Custom body parser: JSON is the default when not specified.
+		#   It MUST return a hash reference.
+		# body_parse => sub { $body, $message }
+		#
+		# - Modify the request before is sent
+		# pre_request => sub { $req }
+		#
+		# - Error handler: called when the request returns status <200 & >299
+		# on_error => sub { $response, $amqp_message }
+		#
+		# - Message filter: return 1 to accept a message, 0 to skip it.
+		# message_filter => sub { $amqp_message }
 	}
 }

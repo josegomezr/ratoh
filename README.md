@@ -45,10 +45,10 @@ config.
 perl devel_server.pl daemon
 ```
 
-Now with all services up, send messages with the `publisher.pl`:
+Now with all services up, send messages with the `producer.pl`:
 
 ```
-bash publisher.pl
+bash producer.pl
 ```
 
 Dependencies
