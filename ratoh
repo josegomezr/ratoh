@@ -8,16 +8,24 @@ use Mojo::URL;
 use Mojo::Log;
 use Mojo::JSON qw(decode_json);
 use Mojo::JSON::Pointer;
-use Mojo::Util qw(dumper);
+use Mojo::Util qw(dumper getopt);
 use Net::AMQP::RabbitMQ;
+use Pod::Usage qw(pod2usage);
 
 my $log = Mojo::Log->new(level => $ENV{RATOH_LOG} // 'debug');
 my $url_paceholder_regex = qr#%\{([^\}]+)\}%#;
 
-# TODO: properly do argparse here.
 sub arg_parse {
+    my $ret = getopt [@_], ['pass_through', 'require_order'],
+        'help|h' => \my $help,
+        'help-extended' => \my $help_extended,
+        'config|c=s' => \my $config
+    ;
+
     return {
-        config_file => shift(@ARGV) // './Config.pm'
+        config_file => $config,
+        help => $help,
+        help_extended => $help_extended
     };
 }
 
@@ -83,7 +91,7 @@ sub notify_endpoint {
     }
 
     if ($@) {
-        $log->trace("Falling back to empty json body, JSON Parsing broke with: $@");
+        $log->trace("Falling back to empty JSON body, JSON Parsing broke with: $@");
         $body = {};
     }
 
@@ -137,7 +145,19 @@ sub connect_to_rabbitmq {
     return $mq;
 }
 
-my $args = arg_parse();
+my $args = arg_parse(@ARGV);
+
+if ($args->{help}) {
+    pod2usage(-exitval => 0);
+}
+
+if ($args->{help_extended}) {
+    pod2usage(-exitval => 0, -verbose => 2);
+}
+
+if (!defined($args->{config_file})) {
+    pod2usage(-exitval => 1);
+}
 
 my $cfg_file_path = $args->{config_file};
 die("Config file $cfg_file_path does not exist.") unless -e $cfg_file_path;
@@ -185,3 +205,67 @@ MAIN_LOOP: while (1) {
 }
 
 $log->info('Ra-to-H Ends!');
+
+__END__
+
+=head1 NAME
+
+ratoh - B<Ra>bbit-B<to>-B<H>ttp bridge
+
+=head1 SYNOPSIS
+
+sample [options]
+
+ Options:
+   --config file, -c file  Ratoh config file.
+   --help, -h              This help message.
+   --help-extended         This help message.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--config>, B<-c>
+
+Config file defining the RabbitMQ connection & HTTP Endpoint
+
+=item B<--help>, B<-h>
+
+Prints this help message
+
+=item B<--help-extended>
+
+Shows extended manual
+
+=back
+
+=head1 DESCRIPTION
+
+C<ratoh> connects to a RabbitMQ bus and forwards messages to an HTTP endpoint.
+
+Using the following minimal config file:
+
+    # contents of config.pm
+    {
+        rabbit_mq => {
+            host => '127.0.0.1',
+            conn_params => {
+                timeout=> 10,
+                user => 'guest',
+                password => 'guest',
+                channel => 1,
+                exchange => 'amq.topic',
+                routing_key => 'your.routing.*.key.#',
+            }
+        },
+        endpoint => {
+            url => 'http://127.0.0.1:3000/',
+            method => 'post',
+        }
+    }
+
+The then we can invoke C<ratoh> as:
+
+    ratoh --config config.pm
+
+=cut
