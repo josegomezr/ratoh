@@ -2,14 +2,14 @@
 package Ratoh;
 
 use Mojo::Base -strict;
-use Mojo::UserAgent;
-use Mojolicious::Plugin::Config;
-use Mojo::URL;
 use Mojo::Log;
-use Mojo::JSON qw(decode_json);
+use Mojo::URL;
+use Mojo::UserAgent;
 use Mojo::JSON::Pointer;
-use Mojo::Util qw(dumper getopt);
+use Mojolicious::Plugin::Config;
 use Net::AMQP::RabbitMQ;
+use Mojo::JSON qw(decode_json);
+use Mojo::Util qw(dumper getopt);
 use Pod::Usage qw(pod2usage);
 
 my $log = Mojo::Log->new(level => $ENV{RATOH_LOG} // 'debug');
@@ -212,33 +212,6 @@ __END__
 
 ratoh - B<Ra>bbit-B<to>-B<H>ttp bridge
 
-=head1 SYNOPSIS
-
-sample [options]
-
- Options:
-   --config file, -c file  Ratoh config file.
-   --help, -h              This help message.
-   --help-extended         This help message.
-
-=head1 OPTIONS
-
-=over 4
-
-=item B<--config>, B<-c>
-
-Config file defining the RabbitMQ connection & HTTP Endpoint
-
-=item B<--help>, B<-h>
-
-Prints this help message
-
-=item B<--help-extended>
-
-Shows extended manual
-
-=back
-
 =head1 DESCRIPTION
 
 C<ratoh> connects to a RabbitMQ bus and forwards messages to an HTTP endpoint.
@@ -267,5 +240,32 @@ Using the following minimal config file:
 The then we can invoke C<ratoh> as:
 
     ratoh --config config.pm
+
+=head1 SYNOPSIS
+
+sample [options]
+
+ Options:
+   --config file, -c file  Ratoh config file.
+   --help, -h              This help message.
+   --help-extended         This help message.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--config>, B<-c>
+
+Config file defining the RabbitMQ connection & HTTP Endpoint
+
+=item B<--help>, B<-h>
+
+Prints this help message
+
+=item B<--help-extended>
+
+Shows extended manual
+
+=back
 
 =cut
