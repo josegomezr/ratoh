@@ -11,6 +11,7 @@ use Mojo::Util;
 use Net::AMQP::RabbitMQ;
 
 my $log = Mojo::Log->new(level => $ENV{RATOH_LOG} // 'debug');
+my $url_paceholder_regex = qr#%\{([^\}]+)\}%#;
 
 # TODO: properly do argparse here.
 sub arg_parse {
@@ -20,12 +21,17 @@ sub arg_parse {
 }
 
 sub send_http_request {
-    my ($endpoint, $body) = @_;
+    my ($endpoint, $body, $log) = @_;
     my $url = $endpoint->{url};
-    my $pointer = Mojo::JSON::Pointer->new($body);
 
-    do { } while ($url =~ s!%\{([^\}]+)\}%!($pointer->get($1)//"-broken:$1-broken-")!ge);
+    if($url =~ qr/$url_paceholder_regex/) {
+        # Replace the %{/json/path}% pointers with the real value.
+        my $pointer = Mojo::JSON::Pointer->new($body);
+        my $placeholder_replace = sub { $pointer->get($1) };
+        do { } while ($url =~ s/$url_paceholder_regex/$placeholder_replace->()/ge);
+    }
 
+    $log->info("Endpoint URL: " . $url);
     $url = Mojo::URL->new($url);
     my $method = $endpoint->{method} // 'get';
     my $ua = Mojo::UserAgent->new();
@@ -35,6 +41,8 @@ sub send_http_request {
     $endpoint->{pre_request}->($tx->req) if is_subroutine($endpoint->{pre_request});
 
     $tx = $ua->start($tx);
+
+    $log->info(sprintf("Response code from endpoint (%s): %d - %s", $tx->remote_address, $tx->res->code, $tx->res->message));
 
     return {
         remote_addr => $tx->remote_address,
@@ -56,6 +64,7 @@ sub is_http_status_error {
 
 sub notify_endpoint {
     my ($endpoint, $message) = @_;
+    my $log = $log->context($message->{consumer_tag}, $message->{delivery_tag});
     $log->info("START - Notifying endpoint");
 
     my $body = $message->{body};
@@ -80,7 +89,7 @@ sub notify_endpoint {
         goto END_NOTIFICATION_LOOP;
     }
 
-    my $response = send_http_request($endpoint, $message);
+    my $response = send_http_request($endpoint, $message, $log);
     my $resp_code = $response->{status_code};
     if (is_http_status_error($resp_code) && is_subroutine($endpoint->{on_error})) {
         $log->debug("Calling error handler");
@@ -122,7 +131,6 @@ sub connect_to_rabbitmq {
 
     return $mq;
 }
-
 
 my $args = arg_parse();
 
