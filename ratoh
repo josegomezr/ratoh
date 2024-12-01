@@ -3,11 +3,12 @@ package Ratoh;
 
 use Mojo::Base -strict;
 use Mojo::UserAgent;
+use Mojolicious::Plugin::Config;
 use Mojo::URL;
-use Mojo::File;
 use Mojo::Log;
-use Mojo::JSON;
-use Mojo::Util;
+use Mojo::JSON qw(decode_json);
+use Mojo::JSON::Pointer;
+use Mojo::Util qw(dumper);
 use Net::AMQP::RabbitMQ;
 
 my $log = Mojo::Log->new(level => $ENV{RATOH_LOG} // 'debug');
@@ -27,11 +28,15 @@ sub send_http_request {
     if($url =~ qr/$url_paceholder_regex/) {
         # Replace the %{/json/path}% pointers with the real value.
         my $pointer = Mojo::JSON::Pointer->new($body);
-        my $placeholder_replace = sub { $pointer->get($1) };
+        my $placeholder_replace = sub {
+            my $resolved_value = $pointer->get($1);
+            $log->trace("Replace params: " . dumper({pointer => $1, resolved_value => $resolved_value}));
+            return $resolved_value;
+        };
         do { } while ($url =~ s/$url_paceholder_regex/$placeholder_replace->()/ge);
     }
 
-    $log->info("Endpoint URL: " . $url);
+    $log->debug("Endpoint URL: " . $url);
     $url = Mojo::URL->new($url);
     my $method = $endpoint->{method} // 'get';
     my $ua = Mojo::UserAgent->new();
@@ -42,7 +47,7 @@ sub send_http_request {
 
     $tx = $ua->start($tx);
 
-    $log->info(sprintf("Response code from endpoint (%s): %d - %s", $tx->remote_address, $tx->res->code, $tx->res->message));
+    $log->debug(sprintf("Response code from endpoint (%s): %d - %s", $tx->remote_address, $tx->res->code, $tx->res->message));
 
     return {
         remote_addr => $tx->remote_address,
@@ -71,7 +76,7 @@ sub notify_endpoint {
     my $body_parser = $endpoint->{body_parser} // 'PARSE_JSON';
 
     if ($body_parser eq 'PARSE_JSON') {
-        eval { $body = Mojo::JSON::decode_json($message->{body}) };
+        eval { $body = decode_json($message->{body}) };
     } elsif (is_subroutine $endpoint->{body_parser}) {
         # or do something arbitrary...
         eval { $body = $endpoint->{body_parser}->($body, $message) };
@@ -106,7 +111,7 @@ sub connect_to_rabbitmq {
     $config->{conn_params}->{port} //= ($config->{conn_params}->{ssl} ? 5671 : 5672);
     $config->{conn_params}->{queue} //= '';
     $log->info('Connecting to RabbitMQ: ' . $config->{host});
-    $log->trace('Connection information: ' . Mojo::Util::dumper(
+    $log->trace('Connection information: ' . dumper(
             {
                 user => $config->{conn_params}->{user},
                 queue => $config->{conn_params}->{queue},
@@ -137,23 +142,16 @@ my $args = arg_parse();
 my $cfg_file_path = $args->{config_file};
 die("Config file $cfg_file_path does not exist.") unless -e $cfg_file_path;
 
-my $cfg_code = "package Ratoh::Config::Sandbox;";
-$cfg_code .= Mojo::File->new($cfg_file_path)->slurp();
-my $config = eval($cfg_code);    ## no critic
+my $config = Mojolicious::Plugin::Config->load($cfg_file_path);
 
 # sane defaults
 $config->{run_mode} //= 'forever';
-
-die qq{Can't load configuration from file "$cfg_file_path": $@} if $@;
-die qq{Configuration file "$cfg_file_path" did not return a hash reference} unless ref $config eq 'HASH';
-
 my $endpoint = $config->{endpoint};
 
 $log->info('Ra-to-H Starts!');
 
 my $retries = 10;
-
-$log->trace("Endpoint configuration: " . Mojo::Util::dumper($endpoint));
+$log->trace("Endpoint configuration: " . dumper($endpoint));
 
 MAIN_LOOP: while (1) {
     my $mq;
@@ -171,7 +169,7 @@ MAIN_LOOP: while (1) {
     $log->info('Connected! Awaiting for messages...');
 
     while (my $message = eval { $mq->recv(0) }) {
-        $log->trace('Incoming message: ' . Mojo::Util::dumper($message));
+        $log->trace('Incoming message: ' . dumper($message));
         notify_endpoint($endpoint, $message);
         if ($config->{run_mode} eq 'stop_on_first_message') {
             $log->info('Stopping after first message');
