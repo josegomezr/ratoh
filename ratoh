@@ -2,6 +2,7 @@
 package Ratoh;
 
 use Mojo::Base -strict;
+use English;
 use Mojo::Log;
 use Mojo::URL;
 use Mojo::UserAgent;
@@ -37,8 +38,10 @@ sub send_http_request {
         # Replace the %{/json/path}% pointers with the real value.
         my $pointer = Mojo::JSON::Pointer->new($body);
         my $placeholder_replace = sub {
-            my $resolved_value = $pointer->get($1);
-            $log->trace("Replace params: " . dumper({pointer => $1, resolved_value => $resolved_value}));
+            my $path = $1;
+            my $resolved_value = $pointer->get($path);
+
+            $log->trace("Replace params: " . dumper({path => $path, resolved_value => $resolved_value}));
             return $resolved_value;
         };
         do { } while ($url =~ s/$url_paceholder_regex/$placeholder_replace->()/ge);
@@ -90,8 +93,8 @@ sub notify_endpoint {
         eval { $body = $endpoint->{body_parser}->($body, $message) };
     }
 
-    if ($@) {
-        $log->trace("Falling back to empty JSON body, JSON Parsing broke with: $@");
+    if ($EVAL_ERROR) {
+        $log->trace("Falling back to empty JSON body, JSON Parsing broke with: $EVAL_ERROR");
         $body = {};
     }
 
@@ -177,8 +180,8 @@ $log->trace("Endpoint configuration: " . dumper($endpoint));
 MAIN_LOOP: while (1) {
     my $mq;
     eval { $mq = connect_to_rabbitmq($config->{rabbit_mq}) };
-    if ($@) {
-        $log->error("Error on connection: $@");
+    if ($EVAL_ERROR) {
+        $log->error("Error on connection: $EVAL_ERROR");
         $log->error("Too many errors, bailing out.") and last if $retries == 0;
 
         $retries--;
@@ -198,8 +201,8 @@ MAIN_LOOP: while (1) {
         }
     }
 
-    if ($@) {
-        $log->error("Error while connected: $@");
+    if ($EVAL_ERROR) {
+        $log->error("Error while connected: $EVAL_ERROR");
         # Disconnect and send to connection routine above.
         $mq->disconnect() and next;
     }
