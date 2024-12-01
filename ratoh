@@ -133,11 +133,13 @@ my $cfg_code = "package Ratoh::Config::Sandbox;";
 $cfg_code .= Mojo::File->new($cfg_file_path)->slurp();
 my $config = eval($cfg_code);    ## no critic
 
+# sane defaults
+$config->{run_mode} //= 'forever';
+
 die qq{Can't load configuration from file "$cfg_file_path": $@} if $@;
 die qq{Configuration file "$cfg_file_path" did not return a hash reference} unless ref $config eq 'HASH';
 
 my $endpoint = $config->{endpoint};
-$endpoint->{mode} //= 'forever';
 
 $log->info('Ra-to-H Starts!');
 
