@@ -16,7 +16,7 @@ my $log = Mojo::Log->new(level => $ENV{RATOH_LOG} // 'debug');
 my $url_paceholder_regex = qr#%\{([^\}]+)\}%#;
 
 sub arg_parse {
-    my $ret = getopt [@_], ['pass_through', 'require_order'],
+    my $ret = getopt [@_], [qw(pass_through require_order)],
         'help|h' => \my $help,
         'help-extended' => \my $help_extended,
         'config|c=s' => \my $config
@@ -116,31 +116,32 @@ sub notify_endpoint {
 sub connect_to_rabbitmq {
     my ($config) = @_;
     my $mq = Net::AMQP::RabbitMQ->new();
-    $config->{conn_params}->{port} //= ($config->{conn_params}->{ssl} ? 5671 : 5672);
-    $config->{conn_params}->{queue} //= '';
+    my $conn_params = $config->{conn_params};
+    $conn_params->{port} //= ($conn_params->{ssl} ? 5671 : 5672);
+    $conn_params->{queue} //= '';
     $log->info('Connecting to RabbitMQ: ' . $config->{host});
     $log->trace('Connection information: ' . dumper(
             {
-                user => $config->{conn_params}->{user},
-                queue => $config->{conn_params}->{queue},
-                channel => $config->{conn_params}->{channel},
-                exchange => $config->{conn_params}->{exchange},
-                routing_key => $config->{conn_params}->{routing_key},
+                user => $conn_params->{user},
+                queue => $conn_params->{queue},
+                channel => $conn_params->{channel},
+                exchange => $conn_params->{exchange},
+                routing_key => $conn_params->{routing_key},
             }
         )
     );
 
-    $mq->connect($config->{host}, $config->{conn_params});
+    $mq->connect($config->{host}, $conn_params);
 
     $log->trace('Opening channel');
-    $mq->channel_open($config->{conn_params}->{channel});
+    $mq->channel_open($conn_params->{channel});
 
     $log->trace('Declaring queue');
-    my $queuename = $mq->queue_declare(1, $config->{conn_params}->{queue});
+    my $queuename = $mq->queue_declare(1, $conn_params->{queue});
 
     $log->info('Binding to queue: ' . $queuename);
-    $mq->queue_bind($config->{conn_params}->{channel}, $queuename, $config->{conn_params}->{exchange}, $config->{conn_params}->{routing_key});
-    $mq->consume($config->{conn_params}->{channel}, $queuename);
+    $mq->queue_bind($conn_params->{channel}, $queuename, $conn_params->{exchange}, $conn_params->{routing_key});
+    $mq->consume($conn_params->{channel}, $queuename);
 
     return $mq;
 }
@@ -199,7 +200,7 @@ MAIN_LOOP: while (1) {
 
     if ($@) {
         $log->error("Error while connected: $@");
-        # Disconect and send to connection routine above.
+        # Disconnect and send to connection routine above.
         $mq->disconnect() and next;
     }
 }
