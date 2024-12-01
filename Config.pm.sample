@@ -1,6 +1,6 @@
 {
 	rabbit_mq => {
-		host => 'rabbit.yourhost.server',
+		host => '127.0.0.1',
 		conn_params => {
 			timeout=> 10,
 			# port => 5671, defaults to 5671 with ssl, 5672 otherwise
@@ -8,15 +8,15 @@
 			ssl => 1,
 			ssl_verify_host => 1,
 			ssl_cacert => '/location/of/your/ca/here.pem',
-			user => 'dauser',
-			password => 'dapassword',
+			user => 'guest',
+			password => 'guest',
 			channel => 1,
 			# queue => '', defaults to empty
-			exchange => 'daexchange',
+			exchange => 'amq.topic',
 			routing_key => 'your.routing.*.key.#',
 		}
 	},
-	endpoints => {
+	endpoint => {
 		url => 'http://127.0.0.1:3000/',
 		method => 'post',
 		# == OPTIONAL ==
